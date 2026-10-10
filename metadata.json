@@ -1,0 +1,11 @@
+{
+  "name": "Echoquest - Nature Expedition Companion",
+  "description": "Outdoor nature exploration companion featuring authentic 3D explorer, real-time Google Maps tactical radar, GPS tracking, and a warm, pleasing voice guide.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
