@@ -161,9 +161,10 @@ export const VoiceAssistantHUD: React.FC<VoiceAssistantHUDProps> = ({
   const isThinking = state.status === 'thinking';
   const isSpeaking = state.status === 'speaking';
 
-  const history = voiceAssistantService.getConversationHistory();
+  const history = voiceAssistantService.getConversationHistory() || [];
   const scavengerItems = mission?.scavengerItems || [];
-  const remainingItems = scavengerItems.filter((item) => !foundItems.includes(item));
+  const safeFoundItems = foundItems || [];
+  const remainingItems = scavengerItems.filter((item) => !safeFoundItems.includes(item));
   const allItemsFound = scavengerItems.length > 0 && remainingItems.length === 0;
 
   return (

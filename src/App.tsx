@@ -12,6 +12,7 @@ import { ArchitectureBlueprint } from './components/ArchitectureBlueprint';
 import { TacticalGoogleMap } from './components/TacticalGoogleMap';
 import { SoothingSoundtrackHUD } from './components/SoothingSoundtrackHUD';
 import { VoiceApiKeyModal } from './components/VoiceApiKeyModal';
+import { ComponentErrorBoundary } from './components/ErrorBoundary';
 import { CharacterGender, GamePage, LocalityWaypoint } from './types';
 import { hapticFeedback } from './utils/haptics';
 import { ambientAudioService } from './services/ambientAudioService';
@@ -813,11 +814,13 @@ export default function App() {
             </div>
 
             <div className="relative w-full h-[280px] sm:h-[350px] md:h-[380px] bg-stone-200/40">
-              <CharacterCanvas
-                gender={selectedGender}
-                isWalking={isWalking}
-                gamePage="character"
-              />
+              <ComponentErrorBoundary componentName="3D Ranger">
+                <CharacterCanvas
+                  gender={selectedGender}
+                  isWalking={isWalking}
+                  gamePage="character"
+                />
+              </ComponentErrorBoundary>
             </div>
           </div>
 
@@ -1020,13 +1023,15 @@ export default function App() {
             </button>
           </div>
 
-          <TacticalGoogleMap
-            telemetry={telemetry}
-            waypoints={appWaypoints}
-            activeWaypoint={activeMapWaypoint}
-            onSelectWaypoint={setActiveMapWaypoint}
-            explorerName={explorerName}
-          />
+          <ComponentErrorBoundary componentName="Tactical Map">
+            <TacticalGoogleMap
+              telemetry={telemetry}
+              waypoints={appWaypoints}
+              activeWaypoint={activeMapWaypoint}
+              onSelectWaypoint={setActiveMapWaypoint}
+              explorerName={explorerName}
+            />
+          </ComponentErrorBoundary>
         </main>
       )}
 

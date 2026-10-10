@@ -72,7 +72,7 @@ export const CharacterCanvas: React.FC<CharacterCanvasProps> = ({
       powerPreference: 'high-performance',
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -274,68 +274,90 @@ export const CharacterCanvas: React.FC<CharacterCanvasProps> = ({
     mRSole.position.set(0, -0.81, 0.05);
     mRLeg.add(mRSole);
 
-    // Async GLTF Loader with safe MeshoptDecoder.ready
+    // Safe Async GLTF Loader with defensive MeshoptDecoder and WebAssembly detection
     let isDisposed = false;
 
-    MeshoptDecoder.ready.then(() => {
+    const loadCharacterGltf = async () => {
       if (isDisposed) return;
-      const loader = new GLTFLoader();
-      loader.setMeshoptDecoder(MeshoptDecoder);
-
-      const modelPath = gender === 'female' ? '/models/michelle.glb' : '/models/nico.glb';
-      loader.load(
-        modelPath,
-        (gltf) => {
-          if (isDisposed) return;
-          const model = gltf.scene;
-
-          model.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              const mesh = child as THREE.Mesh;
-              mesh.castShadow = true;
-              mesh.receiveShadow = true;
-            }
-            if (child.name.includes('Head') || child.name.includes('Neck')) {
-              maleHeadBoneRef.current = child;
-            }
-          });
-
-          // Scale appropriately (around 1.05 - 1.08)
-          const scale = gender === 'female' ? 1.0 : 1.05;
-          model.scale.set(scale, scale, scale);
-          model.position.set(0, 0, 0);
-
-          if (gltf.animations && gltf.animations.length > 0) {
-            const mixer = new THREE.AnimationMixer(model);
-            maleMixerRef.current = mixer;
-
-            const actions: Record<string, THREE.AnimationAction> = {};
-            gltf.animations.forEach((clip) => {
-              actions[clip.name] = mixer.clipAction(clip);
-            });
-            maleActionsRef.current = actions;
-
-            const idleAction = actions['idle'] || Object.values(actions)[0];
-            if (idleAction) {
-              idleAction.reset().fadeIn(0.3).play();
-            }
+      try {
+        const loader = new GLTFLoader();
+        if (MeshoptDecoder && typeof (MeshoptDecoder as any)?.ready?.then === 'function') {
+          try {
+            await (MeshoptDecoder as any).ready;
+            loader.setMeshoptDecoder(MeshoptDecoder);
+          } catch (meshErr) {
+            console.warn('[CharacterCanvas] MeshoptDecoder init notice:', meshErr);
           }
-
-          if (mFallback) mFallback.visible = false;
-          maleGroup.add(model);
-          maleGltfRef.current = model;
-          setIsModelLoaded(true);
-        },
-        undefined,
-        (err) => {
-          console.warn('GLTF load notice, procedural model active:', err);
         }
-      );
-    });
+
+        const modelPath = gender === 'female' ? '/models/michelle.glb' : '/models/nico.glb';
+        loader.load(
+          modelPath,
+          (gltf) => {
+            if (isDisposed) return;
+            try {
+              const model = gltf?.scene;
+              if (!model) return;
+
+              model.traverse((child) => {
+                if ((child as THREE.Mesh)?.isMesh) {
+                  const mesh = child as THREE.Mesh;
+                  mesh.castShadow = true;
+                  mesh.receiveShadow = true;
+                }
+                if (child?.name && (child.name.includes('Head') || child.name.includes('Neck'))) {
+                  maleHeadBoneRef.current = child;
+                }
+              });
+
+              // Scale appropriately (around 1.05 - 1.08)
+              const scale = gender === 'female' ? 1.0 : 1.05;
+              model.scale.set(scale, scale, scale);
+              model.position.set(0, 0, 0);
+
+              if (gltf.animations && gltf.animations.length > 0) {
+                const mixer = new THREE.AnimationMixer(model);
+                maleMixerRef.current = mixer;
+
+                const actions: Record<string, THREE.AnimationAction> = {};
+                gltf.animations.forEach((clip) => {
+                  if (clip?.name) {
+                    actions[clip.name] = mixer.clipAction(clip);
+                  }
+                });
+                maleActionsRef.current = actions;
+
+                const idleAction = actions['idle'] || Object.values(actions)[0];
+                if (idleAction) {
+                  idleAction.reset().fadeIn(0.3).play();
+                }
+              }
+
+              if (mFallback) mFallback.visible = false;
+              maleGroup.add(model);
+              maleGltfRef.current = model;
+              setIsModelLoaded(true);
+            } catch (traverseErr) {
+              console.warn('[CharacterCanvas] GLTF process notice, procedural fallback active:', traverseErr);
+            }
+          },
+          undefined,
+          (err) => {
+            console.warn('[CharacterCanvas] GLTF load notice, procedural fallback active:', err);
+          }
+        );
+      } catch (loaderErr) {
+        console.warn('[CharacterCanvas] GLTFLoader init notice:', loaderErr);
+      }
+    };
+
+    loadCharacterGltf();
 
     // Pointer mouse tracking
     const handleMouseMove = (e: MouseEvent) => {
+      if (!container) return;
       const rect = container.getBoundingClientRect();
+      if (!rect || rect.width === 0 || rect.height === 0) return;
       const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       const y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
       mousePosRef.current = { x: Math.max(-1, Math.min(1, x)), y: Math.max(-1, Math.min(1, y)) };
@@ -355,8 +377,14 @@ export const CharacterCanvas: React.FC<CharacterCanvasProps> = ({
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('resize', handleResize);
-    const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(container);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      try {
+        resizeObserver = new ResizeObserver(handleResize);
+        resizeObserver.observe(container);
+      } catch (_) {}
+    }
 
     // Animation Loop
     let animationFrameId: number;
@@ -463,7 +491,11 @@ export const CharacterCanvas: React.FC<CharacterCanvasProps> = ({
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('resize', handleResize);
-      resizeObserver.disconnect();
+      if (resizeObserver) {
+        try {
+          resizeObserver.disconnect();
+        } catch (_) {}
+      }
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);

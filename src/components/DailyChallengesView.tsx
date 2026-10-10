@@ -32,8 +32,9 @@ export const DailyChallengesView: React.FC<DailyChallengesViewProps> = ({
   selectedBiome,
   totalXp,
 }) => {
-  const completedCount = challenges.filter((c) => c.completed).length;
-  const allCompleted = completedCount === challenges.length && challenges.length > 0;
+  const safeChallenges = challenges || [];
+  const completedCount = safeChallenges.filter((c) => c.completed).length;
+  const allCompleted = completedCount === safeChallenges.length && safeChallenges.length > 0;
 
   return (
     <div className="relative z-10 w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 select-none">

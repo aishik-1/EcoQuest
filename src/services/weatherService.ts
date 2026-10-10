@@ -62,6 +62,16 @@ export async function getBrowserCoordinates(): Promise<GeolocationResult> {
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (!position || !position.coords) {
+          resolve({
+            lat: 37.7749,
+            lng: -122.4194,
+            accuracy: 15,
+            isLive: false,
+            permissionStatus: 'prompt',
+          });
+          return;
+        }
         resolve({
           lat: position.coords.latitude,
           lng: position.coords.longitude,

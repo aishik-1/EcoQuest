@@ -41,6 +41,7 @@ import { TacticalGoogleMap } from './TacticalGoogleMap';
 import { getCurrentGreeting } from '../utils/timeGreeting';
 import { VoiceAssistantHUD } from './VoiceAssistantHUD';
 import { voiceAssistantService } from '../services/voiceAssistantService';
+import { ComponentErrorBoundary } from './ErrorBoundary';
 
 interface MissionHUDProps {
   explorerName: string;
@@ -441,11 +442,13 @@ export const MissionHUD: React.FC<MissionHUDProps> = ({
 
         {/* Right Deck: Tactical Google Map */}
         <div id="tactical-google-map" className="flex flex-col">
-          <TacticalGoogleMap
-            telemetry={telemetry}
-            waypoints={missionWaypoints}
-            explorerName={explorerName}
-          />
+          <ComponentErrorBoundary componentName="Tactical Map">
+            <TacticalGoogleMap
+              telemetry={telemetry}
+              waypoints={missionWaypoints}
+              explorerName={explorerName}
+            />
+          </ComponentErrorBoundary>
         </div>
       </div>
 

@@ -148,7 +148,7 @@ class VoiceAssistantService {
     activeVoiceId: 'EXAVITQu4vr4xnSDxMaL', // Aura (Sarah - ElevenLabs)
     activeVoiceName: 'Aura',
     isMuted: false,
-    isWakeWordEnabled: true,
+    isWakeWordEnabled: false, // Push-to-talk by default: never turns mic on without explicit user tap
     isAutoLeadEnabled: true,
     silenceSecondsRemaining: 5,
     inputAudioLevel: 0,
@@ -181,7 +181,7 @@ class VoiceAssistantService {
   // Speech Recognition (Wake Word + Active Listening)
   private recognition: any = null;
   private isRecognitionActive = false;
-  private isAwakeListening = false; // true = listening for command, false = standby for wake word
+  private isAwakeListening = false; // true = listening for command, false = standby
   private currentTranscript = '';
   private silenceTimer: any = null;
   private countdownInterval: any = null;
@@ -226,10 +226,8 @@ class VoiceAssistantService {
   constructor() {
     this.loadPersistedMemory();
     this.syncPersistedApiKey();
-    this.initSpeechRecognition();
     this.initAuraWebSocket();
     this.warmupBrowserVoice();
-    this.startWatchdog();
     this.setupGestureActivation();
   }
 
@@ -248,13 +246,15 @@ class VoiceAssistantService {
   }
 
   private startWatchdog() {
+    // Only active if wake word is explicitly toggled by user in settings
     if (typeof window === 'undefined') return;
     if (this.watchdogInterval) clearInterval(this.watchdogInterval);
+    if (!this.state.isWakeWordEnabled) return;
     this.watchdogInterval = setInterval(() => {
-      if (this.state.isWakeWordEnabled && this.state.status !== 'speaking' && !this.isRecognitionActive) {
+      if (this.state.isWakeWordEnabled && this.state.status !== 'speaking' && !this.isRecognitionActive && !this.isAwakeListening) {
         this.restartStandbySafely();
       }
-    }, 2000);
+    }, 5000);
   }
 
   // Mobile Web Audio unlock: iOS Safari & mobile Chrome require synchronous audio activation on touch
@@ -280,14 +280,13 @@ class VoiceAssistantService {
 
   private setupGestureActivation() {
     if (typeof window === 'undefined') return;
-    const activateOnGesture = () => {
+    const unlockAudioOnly = () => {
+      // Safely unlock Web Audio context on iOS Safari / Android Chrome touch
       this.unlockAudioContext();
-      if (this.state.isWakeWordEnabled && !this.isRecognitionActive) {
-        this.startWakeWordStandby();
-      }
+      // DO NOT auto-start the microphone on screen touch or scroll!
     };
     ['touchstart', 'touchend', 'click', 'pointerdown'].forEach((evt) => {
-      window.addEventListener(evt, activateOnGesture, { passive: true });
+      window.addEventListener(evt, unlockAudioOnly, { passive: true });
     });
   }
 
@@ -343,11 +342,13 @@ class VoiceAssistantService {
     try {
       const savedHistory = localStorage.getItem('ecoquest_aura_conversation_history');
       if (savedHistory) {
-        this.conversationHistory = JSON.parse(savedHistory);
+        const parsed = JSON.parse(savedHistory);
+        this.conversationHistory = Array.isArray(parsed) ? parsed : [];
       }
       const savedItems = localStorage.getItem('ecoquest_aura_found_items');
       if (savedItems) {
-        this.foundItems = JSON.parse(savedItems);
+        const parsed = JSON.parse(savedItems);
+        this.foundItems = Array.isArray(parsed) ? parsed : [];
       }
     } catch (_) {}
   }
@@ -710,17 +711,24 @@ class VoiceAssistantService {
       };
 
       rec.onresult = (event: any) => {
+        if (!event || !event.results) return;
+
         let latestSegment = '';
         let detectedWakeWord = false;
         let wakeWordCommand = '';
 
-        // Iterate through all recent results and all speech alternatives
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        const resultIndex = typeof event.resultIndex === 'number' ? event.resultIndex : 0;
+        const resultsLen = event.results.length || 0;
+
+        // Iterate through all recent results and speech alternatives safely
+        for (let i = resultIndex; i < resultsLen; i++) {
           const res = event.results[i];
           if (!res) continue;
 
-          for (let j = 0; j < res.length; j++) {
-            const hypothesis = (res[j]?.transcript || '').trim();
+          const altLen = res.length || 0;
+          for (let j = 0; j < altLen; j++) {
+            const item = res[j];
+            const hypothesis = (item?.transcript || '').trim();
             if (!hypothesis) continue;
             latestSegment = hypothesis;
 
@@ -733,7 +741,7 @@ class VoiceAssistantService {
           if (detectedWakeWord) break;
         }
 
-        const lastRes = event.results[event.results.length - 1];
+        const lastRes = resultsLen > 0 ? event.results[resultsLen - 1] : null;
         const isFinal = Boolean(lastRes?.isFinal);
         if (!latestSegment && lastRes && lastRes[0]) {
           latestSegment = (lastRes[0].transcript || '').trim();
@@ -741,38 +749,23 @@ class VoiceAssistantService {
 
         if (!latestSegment) return;
 
-        // 1. If in standby mode (not yet clicked mic or listening)
+        // 1. If in standby mode: ONLY trigger when wake word is explicitly enabled AND wake word is detected
         if (!this.isAwakeListening) {
-          const lower = latestSegment.toLowerCase();
-          const isDirectQuestion =
-            lower.includes('where') ||
-            lower.includes('what') ||
-            lower.includes('how') ||
-            lower.includes('found') ||
-            lower.includes('leaf') ||
-            lower.includes('twig') ||
-            lower.includes('pebble') ||
-            lower.includes('dragon') ||
-            lower.includes('camera') ||
-            lower.includes('hello') ||
-            lower.includes('hi aura') ||
-            lower.includes('hey');
-
-          if (detectedWakeWord || this.matchesWakeWord(latestSegment) || isDirectQuestion) {
-            console.log('[Voice Assistant] Speech / Wake Word detected:', latestSegment);
+          if (this.state.isWakeWordEnabled && (detectedWakeWord || this.matchesWakeWord(latestSegment))) {
+            console.log('[Voice Assistant] Wake Word verified:', latestSegment);
             this.handleWakeWordTriggered(wakeWordCommand || latestSegment);
-            return;
           }
+          return;
         }
 
-        // 2. If in active listening mode and user is speaking
+        // 2. If in active listening mode and user is speaking (Push-to-Talk)
         if (this.isAwakeListening) {
           this.currentTranscript = latestSegment;
           this.state.currentTranscript = latestSegment;
           this.state.inputAudioLevel = Math.max(this.state.inputAudioLevel, 45);
           this.notify();
 
-          // Reset silence timer: give 1.8 seconds after speech stops before finalizing
+          // Reset silence timer: give 2 seconds after speech stops before finalizing
           this.resetSilenceCountdown(2);
 
           if (isFinal) {
@@ -792,11 +785,13 @@ class VoiceAssistantService {
       };
 
       rec.onerror = (event: any) => {
-        if (event.error === 'no-speech') {
+        const errType = event?.error;
+        if (errType === 'no-speech' || errType === 'aborted') {
           return;
         }
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          this.state.errorMessage = 'Mic permission needed. Please allow microphone access!';
+        if (errType === 'not-allowed' || errType === 'service-not-allowed') {
+          this.state.isWakeWordEnabled = false;
+          this.state.errorMessage = 'Mic permission needed. Please tap the mic icon to allow microphone access.';
           this.state.hasMicPermission = false;
           this.notify();
         }
@@ -804,10 +799,16 @@ class VoiceAssistantService {
 
       rec.onend = () => {
         this.isRecognitionActive = false;
+        this.state.isMicListening = false;
+        this.notify();
+
+        // NEVER loop-restart microphone unless user explicitly turned on Wake Word in settings
         if (this.state.isWakeWordEnabled && this.state.status !== 'speaking' && !this.isAwakeListening) {
           setTimeout(() => {
-            this.restartStandbySafely();
-          }, 350);
+            if (this.state.isWakeWordEnabled && !this.isRecognitionActive) {
+              this.restartStandbySafely();
+            }
+          }, 1500);
         }
       };
 
@@ -818,6 +819,7 @@ class VoiceAssistantService {
   }
 
   private restartStandbySafely() {
+    if (!this.state.isWakeWordEnabled) return;
     if (this.isRecognitionActive || this.state.status === 'speaking' || this.isAwakeListening) return;
     try {
       if (!this.recognition) {
@@ -834,7 +836,9 @@ class VoiceAssistantService {
     this.state.currentTranscript = '';
     this.state.silenceSecondsRemaining = 5;
     this.notify();
-    this.restartStandbySafely();
+    if (this.state.isWakeWordEnabled) {
+      this.restartStandbySafely();
+    }
   }
 
   // Called when user speaks wake word or query
@@ -1035,7 +1039,6 @@ class VoiceAssistantService {
     this.state.lastThought = "No clear words detected. Speak closer to the mic or tap a question below!";
     this.notify();
     this.isProcessingAudio = false;
-    this.restartStandbySafely();
   }
 
   private handleSilenceTimeout() {

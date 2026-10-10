@@ -1,5 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Play } from 'lucide-react';
 
 interface Props {
   children: ReactNode;
@@ -30,6 +30,10 @@ export class ErrorBoundary extends Component<Props, State> {
     window.location.reload();
   };
 
+  private handleResume = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
   public render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
@@ -53,18 +57,63 @@ export class ErrorBoundary extends Component<Props, State> {
                 {this.state.error.message}
               </div>
             )}
-            <button
-              onClick={this.handleReset}
-              className="w-full py-3 px-4 bg-stone-900 hover:bg-stone-800 text-stone-50 rounded-xl font-mono text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <RefreshCw className="w-4 h-4" />
-              <span>Reload EcoQuest</span>
-            </button>
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={this.handleResume}
+                className="w-full py-3 px-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-mono text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5" />
+                <span>Resume App</span>
+              </button>
+              <button
+                onClick={this.handleReset}
+                className="w-full py-3 px-3 bg-stone-900 hover:bg-stone-800 text-stone-50 rounded-xl font-mono text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Reload</span>
+              </button>
+            </div>
           </div>
         </div>
       );
     }
 
+    return this.props.children;
+  }
+}
+
+/**
+ * Lightweight local boundary for isolating 3D canvases, audio visualizers, or map views
+ */
+export class ComponentErrorBoundary extends Component<
+  { children: ReactNode; fallback?: ReactNode; componentName?: string },
+  { hasError: boolean; error: Error | null }
+> {
+  public state = {
+    hasError: false,
+    error: null,
+  };
+
+  public static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.warn(`[${this.props.componentName || 'Component'}] caught error safely:`, error, errorInfo);
+  }
+
+  public render() {
+    if (this.state.hasError) {
+      if (this.props.fallback) return this.props.fallback;
+      return (
+        <div className="w-full h-full min-h-[160px] flex items-center justify-center p-4 rounded-2xl bg-stone-200/60 border border-stone-300 text-center font-mono text-xs text-stone-600">
+          <div className="space-y-1">
+            <div className="text-stone-800 font-bold">{this.props.componentName || 'Module'} standby</div>
+            <div className="text-[11px] text-stone-500">Component safely resting. Other features remain fully active.</div>
+          </div>
+        </div>
+      );
+    }
     return this.props.children;
   }
 }

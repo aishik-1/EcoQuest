@@ -26,7 +26,7 @@ export const StickerAlbumView: React.FC<StickerAlbumViewProps> = ({
 }) => {
   const [filterCategory, setFilterCategory] = useState<'all' | 'craft' | 'flora' | 'fauna'>('all');
   const [selectedSticker, setSelectedSticker] = useState<StickerEntry | null>(
-    unlockedStickers[0] || null
+    (unlockedStickers && unlockedStickers[0]) || null
   );
 
   // Default fallback catalog if few unlocked
@@ -97,7 +97,7 @@ export const StickerAlbumView: React.FC<StickerAlbumViewProps> = ({
   // Merge unlocked with catalog without duplicates
   const stickerMap = new Map<string, StickerEntry>();
   defaultCatalog.forEach((s) => stickerMap.set(s.id, s));
-  unlockedStickers.forEach((s) => stickerMap.set(s.id, s));
+  (unlockedStickers || []).forEach((s) => stickerMap.set(s.id, s));
   const stickers = Array.from(stickerMap.values());
 
   const filtered = stickers.filter((s) => {

@@ -367,15 +367,17 @@ class MovementTrackingService {
   }
 
   private handleGpsUpdate(pos: GeolocationPosition) {
+    if (!pos || !pos.coords) return;
     const { latitude, longitude, speed, heading, accuracy } = pos.coords;
+    if (typeof latitude !== 'number' || typeof longitude !== 'number') return;
     const now = pos.timestamp || Date.now();
 
     this.telemetry.latitude = latitude;
     this.telemetry.longitude = longitude;
-    this.telemetry.accuracy = accuracy;
+    this.telemetry.accuracy = accuracy || 5;
     this.telemetry.isGpsActive = true;
 
-    if (heading !== null && !isNaN(heading)) {
+    if (heading !== null && heading !== undefined && !isNaN(heading)) {
       this.telemetry.headingDegrees = Math.round(heading);
     }
 
@@ -396,7 +398,7 @@ class MovementTrackingService {
       }
 
       let calculatedSpeed = dist / timeDeltaSeconds;
-      if (speed !== null && !isNaN(speed) && speed >= 0) {
+      if (speed !== null && speed !== undefined && !isNaN(speed) && speed >= 0) {
         calculatedSpeed = speed;
       }
 
@@ -429,6 +431,10 @@ class MovementTrackingService {
     return new Promise((resolve) => {
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
+          if (!pos || !pos.coords) {
+            resolve({ lat: this.telemetry.latitude, lng: this.telemetry.longitude });
+            return;
+          }
           const { latitude, longitude, accuracy, heading } = pos.coords;
           this.telemetry.latitude = latitude;
           this.telemetry.longitude = longitude;

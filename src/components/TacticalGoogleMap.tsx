@@ -66,15 +66,21 @@ const MapCameraController: React.FC<{
 
   // Detect when user pans/zooms manually to detach auto-follow
   useEffect(() => {
-    if (!map) return;
-    const dragListener = map.addListener('dragstart', () => {
+    if (!map || typeof (map as any).addListener !== 'function') return;
+    const dragListener = (map as any).addListener('dragstart', () => {
       onUserPanned();
     });
     return () => {
-      const gMaps = (window as any).google?.maps;
-      if (gMaps?.event) {
-        gMaps.event.removeListener(dragListener);
-      }
+      try {
+        if (typeof dragListener?.remove === 'function') {
+          dragListener.remove();
+        } else {
+          const gMaps = (window as any).google?.maps;
+          if (gMaps?.event?.removeListener) {
+            gMaps.event.removeListener(dragListener);
+          }
+        }
+      } catch (_) {}
     };
   }, [map, onUserPanned]);
 
@@ -154,11 +160,11 @@ export const TacticalGoogleMap: React.FC<TacticalGoogleMapProps> = ({
     if (
       typeof DeviceOrientationEvent !== 'undefined' &&
       typeof (DeviceOrientationEvent as any).requestPermission === 'function' &&
-      !telemetry.hasSensorHeading
+      !telemetry?.hasSensorHeading
     ) {
       setNeedsSensorPermission(true);
     }
-  }, [telemetry.hasSensorHeading]);
+  }, [telemetry?.hasSensorHeading]);
 
   // Sync selected pin with active waypoint
   useEffect(() => {
