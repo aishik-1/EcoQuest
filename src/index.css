@@ -15,6 +15,9 @@
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
     scroll-behavior: smooth;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
@@ -24,6 +27,8 @@
     padding-bottom: var(--sab);
     padding-left: var(--sal);
     padding-right: var(--sar);
+    overflow-x: hidden;
+    overscroll-behavior-y: none;
   }
 }
 
@@ -71,3 +76,27 @@
     transform: translateY(0);
   }
 }
+
+/* 60 FPS Smooth GPU Acceleration Utilities */
+* {
+  box-sizing: border-box;
+}
+
+/* Hardware accelerated layer promotions for 60fps scrolling */
+.gpu-accelerated {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+  will-change: transform, opacity;
+}
+
+/* Smooth transitions with custom easing curve */
+.transition-smooth {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Avoid micro-stuttering on interaction elements */
+button, a, input, select {
+  touch-action: manipulation;
+}
+

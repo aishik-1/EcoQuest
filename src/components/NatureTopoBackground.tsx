@@ -25,8 +25,11 @@ export const NatureTopoBackground: React.FC<NatureTopoBackgroundProps> = ({
     if (!ctx) return;
 
     let animationFrameId: number;
-    let width = (canvas.width = window.innerWidth);
-    let height = (canvas.height = window.innerHeight);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    let width = (canvas.width = window.innerWidth * dpr);
+    let height = (canvas.height = window.innerHeight * dpr);
+    canvas.style.width = `${window.innerWidth}px`;
+    canvas.style.height = `${window.innerHeight}px`;
 
     // Mouse parallax tracking
     let mouseX = width / 2;
@@ -35,19 +38,22 @@ export const NatureTopoBackground: React.FC<NatureTopoBackgroundProps> = ({
     let targetMouseY = mouseY;
 
     const handleMouseMove = (e: MouseEvent) => {
-      targetMouseX = e.clientX;
-      targetMouseY = e.clientY;
+      targetMouseX = e.clientX * dpr;
+      targetMouseY = e.clientY * dpr;
     };
 
     const handleResize = () => {
       if (!canvas) return;
-      width = canvas.width = window.innerWidth;
-      height = canvas.height = window.innerHeight;
+      const newDpr = Math.min(window.devicePixelRatio || 1, 2);
+      width = canvas.width = window.innerWidth * newDpr;
+      height = canvas.height = window.innerHeight * newDpr;
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
       initSpores();
     };
 
     window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('resize', handleResize, { passive: true });
 
     // Drifting Forest Spores
     interface Spore {
