@@ -145,7 +145,7 @@ const soundEffects = new AssistantAudioEffects();
 class VoiceAssistantService {
   private state: VoiceAssistantState = {
     status: 'idle',
-    activeVoiceId: '21m00Tcm4TlvDq8ikWAM', // Aura - Mystical & Enthusiastic (ElevenLabs / Gemini)
+    activeVoiceId: 'EXAVITQu4vr4xnSDxMaL', // Aura (Sarah - ElevenLabs)
     activeVoiceName: 'Aura',
     isMuted: false,
     isWakeWordEnabled: true,
@@ -153,7 +153,7 @@ class VoiceAssistantService {
     silenceSecondsRemaining: 5,
     inputAudioLevel: 0,
     outputAudioLevel: 0,
-    audioSourceUsed: 'elevenlabs',
+    audioSourceUsed: 'elevenlabs-sarah',
     lastThought: 'Aura is ready. Tap the mic or an observation.',
     lastSpokenText: '',
     errorMessage: null,
@@ -171,8 +171,9 @@ class VoiceAssistantService {
   private isAuraSocketConnected = false;
   private reconnectTimeout: any = null;
 
-  // Internal Audio Playback
+  // Internal Audio Playback (Single locked voice pipeline)
   private currentAudio: HTMLAudioElement | null = null;
+  private currentSourceNode: AudioBufferSourceNode | null = null;
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private animFrameId: number | null = null;
@@ -285,8 +286,9 @@ class VoiceAssistantService {
         this.startWakeWordStandby();
       }
     };
-    window.addEventListener('click', activateOnGesture, { passive: true });
-    window.addEventListener('touchstart', activateOnGesture, { passive: true });
+    ['touchstart', 'touchend', 'click', 'pointerdown'].forEach((evt) => {
+      window.addEventListener(evt, activateOnGesture, { passive: true });
+    });
   }
 
   private warmupBrowserVoice() {
@@ -1322,29 +1324,106 @@ class VoiceAssistantService {
     }
   }
 
-  private playAudioUrl(url: string, expectedGen?: number): Promise<void> {
+  private async playAudioUrl(url: string, expectedGen?: number): Promise<void> {
+    const currentGen = expectedGen !== undefined ? expectedGen : ++this.playbackGeneration;
+
+    // Cleanly cancel any browser speech synthesis
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (_) {}
+    }
+
+    // Cleanly stop any existing HTML audio element
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
+        this.currentAudio.src = '';
+        this.currentAudio.load();
+      } catch (_) {}
+      this.currentAudio = null;
+    }
+
+    // Cleanly stop any existing Web Audio source node
+    if (this.currentSourceNode) {
+      try {
+        this.currentSourceNode.stop();
+        this.currentSourceNode.disconnect();
+      } catch (_) {}
+      this.currentSourceNode = null;
+    }
+
+    if (this.playbackGeneration !== currentGen) {
+      if (url.startsWith('blob:')) {
+        try { URL.revokeObjectURL(url); } catch (_) {}
+      }
+      return;
+    }
+
+    // 1. Primary path: Web Audio API decoded buffer playback
+    // Immune to mobile iOS Safari & Android Chrome HTMLAudioElement autoplay blocking once context unlocked!
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        if (!this.audioCtx || this.audioCtx.state === 'closed') {
+          this.audioCtx = new AudioCtx();
+        }
+        if (this.audioCtx.state === 'suspended') {
+          await this.audioCtx.resume().catch(() => {});
+        }
+
+        if (this.audioCtx.state === 'running') {
+          const res = await fetch(url);
+          const arrayBuf = await res.arrayBuffer();
+
+          if (this.playbackGeneration !== currentGen) {
+            if (url.startsWith('blob:')) try { URL.revokeObjectURL(url); } catch (_) {}
+            return;
+          }
+
+          const audioBuffer = await this.audioCtx.decodeAudioData(arrayBuf);
+          if (this.playbackGeneration !== currentGen) {
+            if (url.startsWith('blob:')) try { URL.revokeObjectURL(url); } catch (_) {}
+            return;
+          }
+
+          const sourceNode = this.audioCtx.createBufferSource();
+          sourceNode.buffer = audioBuffer;
+          sourceNode.connect(this.audioCtx.destination);
+          this.currentSourceNode = sourceNode;
+
+          this.startOutputVisualizerLoop();
+
+          return new Promise<void>((resolve) => {
+            sourceNode.onended = () => {
+              if (this.currentSourceNode === sourceNode) {
+                this.currentSourceNode = null;
+              }
+              this.stopOutputVisualizerLoop();
+              if (url.startsWith('blob:')) {
+                try { URL.revokeObjectURL(url); } catch (_) {}
+              }
+              if (this.playbackGeneration === currentGen) {
+                this.state.status = 'idle';
+                this.state.outputAudioLevel = 0;
+                this.notify();
+                ambientAudioService.restoreAudioAfterSpeech();
+                this.startWakeWordStandby();
+              }
+              resolve();
+            };
+            sourceNode.start(0);
+          });
+        }
+      }
+    } catch (webAudioErr) {
+      console.warn('[Voice Assistant] WebAudio playback fallback to HTMLAudio:', webAudioErr);
+    }
+
+    // 2. Fallback to HTMLAudioElement
     return new Promise((resolve) => {
       try {
-        const currentGen = expectedGen !== undefined ? expectedGen : ++this.playbackGeneration;
-
-        // Cleanly stop any existing HTML audio element
-        if (this.currentAudio) {
-          try {
-            this.currentAudio.pause();
-            this.currentAudio.currentTime = 0;
-            this.currentAudio.src = '';
-            this.currentAudio.load();
-          } catch (_) {}
-          this.currentAudio = null;
-        }
-
-        // Cleanly cancel any browser speech synthesis
-        if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-          try {
-            window.speechSynthesis.cancel();
-          } catch (_) {}
-        }
-
         if (this.playbackGeneration !== currentGen) {
           if (url.startsWith('blob:')) {
             try { URL.revokeObjectURL(url); } catch (_) {}
@@ -1502,6 +1581,13 @@ class VoiceAssistantService {
 
   public stopSpeaking() {
     this.playbackGeneration++;
+    if (this.currentSourceNode) {
+      try {
+        this.currentSourceNode.stop();
+        this.currentSourceNode.disconnect();
+      } catch (_) {}
+      this.currentSourceNode = null;
+    }
     if (this.currentAudio) {
       try {
         this.currentAudio.pause();
@@ -1602,6 +1688,8 @@ class VoiceAssistantService {
             chosenMime = 'audio/webm';
           } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
             chosenMime = 'audio/mp4';
+          } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+            chosenMime = 'audio/aac';
           }
 
           const mr = chosenMime
